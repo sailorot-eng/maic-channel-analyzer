@@ -481,6 +481,7 @@ if st.session_state.videos:
 
             st.session_state.analysis_done = True
             st.success(f"✅ Complete! {len(all_selected)} videos processed.")
+            st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
 
