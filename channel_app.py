@@ -959,7 +959,7 @@ with tab2:
             stored = " ✅" if vid_id in st.session_state.transcripts else ""
             col_chk, col_info = st.columns([0.05, 0.95])
             with col_chk:
-                st.checkbox("", key=f"chk_{vid_id}")
+                st.checkbox("Select", key=f"chk_{vid_id}", label_visibility="collapsed")
             with col_info:
                 st.markdown(
                     f"**{v['title']}{stored}**  "
