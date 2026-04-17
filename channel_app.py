@@ -173,22 +173,50 @@ def fetch_channel_videos(identifier: str, id_type: str, limit: int = 300):
 def fetch_transcript_raw(video_id: str):
     """
     Returns list of {text, start, duration} dicts.
-    'start' is seconds (float) from youtube-transcript-api.
-    Tries multiple methods for version compatibility.
+    Handles all versions of youtube-transcript-api including
+    newer versions that return FetchedTranscriptSnippet objects.
     """
-    # Method 1: get_transcript() — most stable
+
+    def normalize(entries):
+        """
+        Convert whatever the API returns into plain dicts
+        with 'text' and 'start' keys. Handles:
+        - Plain dicts (old API)
+        - FetchedTranscriptSnippet objects (new API 0.6.x+)
+        - Objects with .text / .start attributes
+        """
+        result = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                result.append(entry)
+            else:
+                # Try attribute access for new-style objects
+                try:
+                    text  = getattr(entry, "text",  None) or str(entry)
+                    start = getattr(entry, "start", 0.0)
+                    dur   = getattr(entry, "duration", 0.0)
+                    result.append({"text": text, "start": float(start), "duration": float(dur)})
+                except Exception:
+                    result.append({"text": str(entry), "start": 0.0, "duration": 0.0})
+        return result
+
+    # Method 1: get_transcript() class method — most stable
     try:
-        return YouTubeTranscriptApi.get_transcript(
+        raw = YouTubeTranscriptApi.get_transcript(
             video_id, languages=["en", "en-US", "en-GB"]
         )
+        return normalize(raw)
     except Exception:
         pass
+
     # Method 2: no language filter
     try:
-        return YouTubeTranscriptApi.get_transcript(video_id)
+        raw = YouTubeTranscriptApi.get_transcript(video_id)
+        return normalize(raw)
     except Exception:
         pass
-    # Method 3: instance list
+
+    # Method 3: instance list() — new API style
     try:
         api = YouTubeTranscriptApi()
         list_fn = getattr(api, "list", None) or getattr(api, "list_transcripts", None)
@@ -202,11 +230,13 @@ def fetch_transcript_raw(video_id: str):
                 try:
                     result = attempt(tl)
                     fetch_fn = getattr(result, "fetch", None)
-                    return fetch_fn() if fetch_fn else list(result)
+                    raw = fetch_fn() if fetch_fn else list(result)
+                    return normalize(raw)
                 except Exception:
                     continue
     except Exception:
         pass
+
     raise NoTranscriptFound(video_id, ["en"], {})
 
 
