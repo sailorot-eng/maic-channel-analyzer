@@ -825,7 +825,13 @@ with tab1:
                 with col_load:
                     if st.button("Load →", key=f"search_load_{ch['id']}"):
                         st.session_state.channel_url = ch["url"]
-                        st.success(f"URL set! Go to **Load Channel** tab.")
+                        st.session_state.videos = []
+                        st.session_state.transcripts = {}
+                        st.session_state.top_videos = []
+                        st.session_state.gemini_results = {}
+                        st.session_state.synthesis = ""
+                        st.session_state.loaded = False
+                        st.rerun()
         else:
             st.warning("No results. Try different keywords or paste a URL directly in the Load Channel tab.")
 
@@ -858,7 +864,15 @@ with tab1:
                 safe_key = re.sub(r"[^\w]", "_", ch["name"])
                 if st.button("Load →", key=f"curated_{safe_key}"):
                     st.session_state.channel_url = ch["url"]
-                    st.success(f"✅ '{ch['name']}' URL set — go to Load Channel tab.")
+                    # Clear old data so new channel loads fresh
+                    st.session_state.videos = []
+                    st.session_state.transcripts = {}
+                    st.session_state.top_videos = []
+                    st.session_state.gemini_results = {}
+                    st.session_state.synthesis = ""
+                    st.session_state.loaded = False
+                    st.success(f"✅ '{ch['name']}' URL loaded — switching to Load Channel tab.")
+                    st.rerun()
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -871,13 +885,17 @@ with tab2:
 
     col_url, col_limit = st.columns([3, 1])
     with col_url:
+        # Always reflect current session state — updates when user picks from Tab 1
         channel_url_input = st.text_input(
             "Channel URL",
             value=st.session_state.channel_url,
-            placeholder="https://www.youtube.com/@svdelos",
+            placeholder="https://www.youtube.com/@ImpossibleDreamCatamaran",
             label_visibility="collapsed",
             key="ch_url_input",
         )
+        # Sync back: if user edits manually, update session state immediately
+        if channel_url_input != st.session_state.channel_url:
+            st.session_state.channel_url = channel_url_input
     with col_limit:
         video_limit = st.number_input("Max videos", min_value=3, max_value=500, value=200, step=10)
 
