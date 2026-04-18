@@ -81,6 +81,7 @@ DEFAULTS = {
     "gemini_results":    {},
     "synthesis":         "",
     "prompts":           {},
+    "just_loaded_ch":    "",
     "gemini_key":        "",
     "loaded":            False,
 }
@@ -500,12 +501,64 @@ t1,t2,t3,t4,t5,t6,t7 = st.tabs([
 # TAB 1 — FIND CHANNELS
 # ════════════════════════════════════════════════════════════════════════════════
 with t1:
+    # ── Confirmation banner after Load → is clicked ──────────────────────────
+    if st.session_state.get("just_loaded_ch"):
+        st.markdown(
+            f"<div style='background:rgba(29,158,117,.2);border:2px solid #5dcaa5;"
+            f"border-radius:8px;padding:.8rem 1.2rem;margin-bottom:1rem;font-size:.95rem;color:#5dcaa5'>"
+            f"✅ <strong>{st.session_state.just_loaded_ch}</strong> is ready! "
+            f"Now click the <strong>📡 Load Channel</strong> tab above to continue.</div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state.just_loaded_ch = ""
+
+    # ── Custom URL entry ──────────────────────────────────────────────────────
+    st.markdown('<div class="card"><div class="card-title">🔗 Enter Any YouTube Channel URL</div>',
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div style='font-size:.82rem;color:#8fbcd4;margin-bottom:.6rem'>"
+        "Paste any YouTube channel URL here, or pick one from the curated list below.</div>",
+        unsafe_allow_html=True,
+    )
+    c_custom_url, c_custom_btn = st.columns([4,1])
+    with c_custom_url:
+        custom_url = st.text_input(
+            "Custom URL",
+            value="",
+            placeholder="https://www.youtube.com/@ImpossibleDreamCatamaran",
+            label_visibility="collapsed",
+        )
+    with c_custom_btn:
+        if st.button("Use This URL", use_container_width=True):
+            if custom_url.strip():
+                st.session_state.channel_url    = custom_url.strip()
+                st.session_state.active_ch_name = custom_url.strip().split("@")[-1].split("/")[0]
+                st.session_state.videos          = []
+                st.session_state.transcripts     = {}
+                st.session_state.top_videos      = []
+                st.session_state.gemini_results  = {}
+                st.session_state.synthesis       = ""
+                st.session_state.loaded          = False
+                st.session_state.prompts         = {}
+                st.session_state.just_loaded_ch  = st.session_state.active_ch_name
+                st.rerun()
+            else:
+                st.warning("Please paste a URL first.")
+    if st.session_state.channel_url:
+        st.markdown(
+            f"<div style='font-size:.8rem;color:#5dcaa5;margin-top:.3rem'>"
+            f"Current: <strong>{st.session_state.channel_url}</strong></div>",
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown('<div class="card"><div class="card-title">📚 Curated Research Channels — by Population Group</div>',
                 unsafe_allow_html=True)
     st.markdown(
         "<div style='font-size:.82rem;color:#8fbcd4;margin-bottom:.8rem'>"
         "Pre-vetted channels for your three-group purposive sample. "
-        "Click <strong>Load →</strong> to send to the Load Channel tab automatically."
+        "Click <strong>Load →</strong> — a green banner will confirm the channel is ready, "
+        "then click the <strong>📡 Load Channel</strong> tab."
         "</div>", unsafe_allow_html=True,
     )
 
@@ -531,7 +584,6 @@ with t1:
                 if st.button("Load →", key=f"cur_{safe}"):
                     st.session_state.channel_url    = ch["url"]
                     st.session_state.active_ch_name = ch["name"]
-                    # Clear previous channel data
                     st.session_state.videos          = []
                     st.session_state.transcripts     = {}
                     st.session_state.top_videos      = []
@@ -539,7 +591,7 @@ with t1:
                     st.session_state.synthesis       = ""
                     st.session_state.loaded          = False
                     st.session_state.prompts         = {}
-                    st.rerun()
+                    st.session_state.just_loaded_ch  = ch["name"]
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
