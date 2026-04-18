@@ -11,6 +11,40 @@ import re, io, zipfile, time, collections, json
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
 
+def search_youtube_topic(query, limit=30):
+    """Search YouTube by keyword or hashtag using scrapetube."""
+    try:
+        results = scrapetube.get_search(query, limit=limit)
+        videos = []
+        for v in results:
+            vid_id = v.get("videoId", "")
+            runs   = v.get("title", {}).get("runs", [])
+            title  = runs[0].get("text", "") if runs else ""
+            if vid_id and title:
+                videos.append({
+                    "video_id": vid_id,
+                    "title":    title,
+                    "duration": v.get("lengthText", {}).get("simpleText", ""),
+                    "views":    v.get("viewCountText", {}).get("simpleText", ""),
+                    "date":     v.get("publishedTimeText", {}).get("simpleText", ""),
+                    "url":      f"https://www.youtube.com/watch?v={vid_id}",
+                    "channel":  v.get("longBylineText", {}).get("runs", [{}])[0].get("text", "Unknown"),
+                })
+        return videos
+    except Exception as e:
+        return []
+
+def quick_score_title(title):
+    """Score a video by title keywords alone — used before transcripts are fetched."""
+    title_lower = title.lower()
+    score = sum(3 for k in HIGH_TITLE_KW if k in title_lower)
+    # Extra weight for adaptive sailing terms
+    adaptive_kw = ["adaptive","disability","wheelchair","accessible","blind","deaf",
+                   "paraplegia","spinal","veteran","warrior","inclusive","sailability",
+                   "para sailing","disabled","amputee","prosthetic"]
+    score += sum(5 for k in adaptive_kw if k in title_lower)
+    return min(score, 30)
+
 try:
     from google import genai as google_genai
     GEMINI_AVAILABLE = True
@@ -36,7 +70,14 @@ html,body,[class*="css"]{font-family:'Source Sans 3',sans-serif;background:#0d1b
 .hero p{font-size:.85rem;color:#d6eaf8;opacity:.85;margin:0;}
 .card{background:#1b3a5c;border:1px solid #2a4d6e;border-radius:10px;padding:1.2rem 1.5rem;margin-bottom:1rem;}
 .card-title{font-family:'Cinzel',serif;font-size:.75rem;letter-spacing:.1em;color:#c9a84c;text-transform:uppercase;margin-bottom:.75rem;}
-.stTextInput>div>div>input,.stTextArea textarea,.stNumberInput input{background:#0d1b2a!important;border:1px solid #2e6da4!important;color:#f0f4f8!important;border-radius:6px!important;}
+.stTextInput>div>div>input,.stTextArea textarea,.stNumberInput input{background:#0d1b2a!important;border:1px solid #5ba4d4!important;color:#ffffff!important;border-radius:6px!important;font-size:.9rem!important;}
+.stTextInput>div>div>input::placeholder,.stTextArea textarea::placeholder{color:#5ba4d4!important;opacity:.8;}
+.stSelectbox>div>div{background:#0d1b2a!important;border:1px solid #5ba4d4!important;color:#ffffff!important;}
+.stSlider>div>div>div>div{background:#c9a84c!important;}
+label{color:#d6eaf8!important;font-size:.85rem!important;}
+.stCheckbox label{color:#d6eaf8!important;font-size:.85rem!important;}
+p, li, div{color:#d6eaf8;}
+strong{color:#ffffff;}
 .stButton>button{background:#c9a84c!important;border:2px solid #e8c96a!important;color:#1a0f00!important;font-family:'Cinzel',serif!important;font-weight:700!important;font-size:.83rem!important;border-radius:6px!important;}
 .stButton>button:hover{background:#e0b94a!important;}
 [data-testid="stSidebar"]{background:#07111e!important;border-right:1px solid #1b3a5c;}
@@ -81,23 +122,36 @@ if not st.session_state.gemini_key:
 
 # ─── Curated channels ──────────────────────────────────────────────────────────
 CURATED = {
-    "🦾 Adaptive & Accessible Sailing": [
+    "🦾 Adaptive & Accessible Sailing — Robie Pierce Award Recipients & Primary Sources": [
+        {"name":"Hudson River Community Sailing","url":"https://www.youtube.com/@hudsonrivercommunitysailing",
+         "desc":"🏆 2025 Robie Pierce Award winner. NYC-based. 250+ adaptive sailors, partnerships with VA hospitals. CLOSEST program to researcher — potential photovoice site.","tags":["adaptive","NYC","Robie Pierce 2025","A5","D3"],"group":"adaptive"},
         {"name":"Impossible Dream Catamaran","url":"https://www.youtube.com/@ImpossibleDreamCatamaran",
          "desc":"World's only universally accessible 60-ft catamaran. Wheelchair users at the helm. Shake-A-Leg Miami. Primary dissertation data source.","tags":["adaptive","wheelchair","D1","A5"],"group":"adaptive"},
         {"name":"Blind Sailing International","url":"https://www.youtube.com/@blindsailinginternational",
          "desc":"Visually impaired sailors racing and cruising. Sensory adaptation, tactile navigation, command presence without sight.","tags":["adaptive","blind","D1","A4"],"group":"adaptive"},
         {"name":"Shake-A-Leg Miami","url":"https://www.youtube.com/@ShakeALegMiami",
          "desc":"Community adaptive sailing & aquatics. OT connections, peer-mediated participation, occupational justice.","tags":["adaptive","OT","D3"],"group":"adaptive"},
+        {"name":"CRAB — Chesapeake Region Accessible Boating","url":"https://www.youtube.com/@CRABSailing",
+         "desc":"🏆 2019 Robie Pierce Award winner. 35 years adaptive sailing, Chesapeake Bay. Sip-and-puff steering, Martin 16 for quadriplegic sailors. Maryland.","tags":["adaptive","Maryland","Robie Pierce 2019","D1","D3","OT"],"group":"adaptive"},
+        {"name":"Sail Maine","url":"https://www.youtube.com/@SailMaine",
+         "desc":"🏆 2024 Robie Pierce Award winner. Community sailing program with strong adaptive programming.","tags":["adaptive","Maine","Robie Pierce 2024","D3"],"group":"adaptive"},
+        {"name":"Community Sailing Center Burlington VT","url":"https://www.youtube.com/@CommunitySailingCenter",
+         "desc":"🏆 Past Robie Pierce Award winner. Adaptive watersports since 1997. Martin-16 fleet. 226% increase in adaptive sailing hours in 2023.","tags":["adaptive","Vermont","Robie Pierce","D1","D3"],"group":"adaptive"},
+        {"name":"Piers Park Sailing Center Boston","url":"https://www.youtube.com/@PiersParkSailing",
+         "desc":"East Boston community sailing. Serves underserved youth and adaptive sailors. Strong occupational justice and co-occupation data.","tags":["adaptive","Boston","community","D2","D3","A5"],"group":"adaptive"},
+        {"name":"Community Boating Inc Boston","url":"https://www.youtube.com/@CommunityBoatingInc",
+         "desc":"One of the largest community sailing programs in the US, Charles River Boston. Inclusive programming, adaptive sailing access.","tags":["adaptive","Boston","community","D3"],"group":"adaptive"},
+        {"name":"Rutland Sailability","url":"https://www.youtube.com/@RutlandSailability",
+         "desc":"UK-based Sailability charity. Racing, training, recreation for sailors with disabilities. Strong command presence data from disabled racers.","tags":["adaptive","UK","Sailability","B4","D1"],"group":"adaptive"},
+        {"name":"US Sailing","url":"https://www.youtube.com/@USSailing",
+         "desc":"National governing body. Adaptive sailing instruction videos, Wheels on the Dock webinar series, para-classification resources.","tags":["adaptive","CTE","USCG","B3","D3"],"group":"adaptive"},
     ],
     "⚓ Experienced Sailors (Baseline)": [
         {"name":"SV Delos","url":"https://www.youtube.com/@svdelos",
          "desc":"14+ years bluewater cruising. Post-work identity, passage planning, Command Presence in real offshore conditions.","tags":["baseline","offshore","C1","B4","E1"],"group":"baseline"},
         {"name":"Sailing La Vagabonde","url":"https://www.youtube.com/@SailingLaVagabonde",
          "desc":"Family liveaboard sailing. Co-occupation, meaning-making, strong identity and becoming data.","tags":["baseline","family","A5","C2"],"group":"baseline"},
-        {"name":"Far Reach Sailing","url":"https://www.youtube.com/@FarReachSailing",
-         "desc":"Offshore passages with explicit seamanship narration. COLREGS, weather decisions, watch-keeping.","tags":["baseline","seamanship","B3","B4"],"group":"baseline"},
-        {"name":"Sailing Uma","url":"https://www.youtube.com/@SailingUma",
-         "desc":"Couple sailing a steel ketch. Extensive decision-making narration and weather routing transparency.","tags":["baseline","decision-making","A2","B4"],"group":"baseline"},
+
     ],
     "🎓 USCG / CTE / Instruction": [
         {"name":"NauticEd Sailing","url":"https://www.youtube.com/@NauticEd",
@@ -106,6 +160,8 @@ CURATED = {
          "desc":"Racing and cruising technique. Tactical decision-making, crew communication.","tags":["CTE","racing","B2"],"group":"cte"},
     ],
     "🌊 Heavy Weather / Decision-Making": [
+        {"name":"NBJS — No Bullshit Just Sailing (Erik Aanderaa)","url":"https://www.youtube.com/@ErikAanderaa",
+         "desc":"Singlehanded North Atlantic offshore sailing. Every decision is the skipper's alone — maximum agency expression. Heavy weather command presence baseline.","tags":["baseline","offshore","singlehanded","B4","B5","A2"],"group":"baseline"},
         {"name":"Sailing Nahoa","url":"https://www.youtube.com/@SailingNahoa",
          "desc":"Pacific cruising with detailed passage narration. Weather decisions and risk assessment explicitly discussed.","tags":["heavy weather","B4","A2"],"group":"baseline"},
         {"name":"Gone with the Wynns","url":"https://www.youtube.com/@GoneWithTheWynns",
@@ -556,6 +612,115 @@ with t1:
     st.markdown("</div>",unsafe_allow_html=True)
 
     # Curated list
+    # ── Hashtag / Topic Search ──────────────────────────────────────────────
+    st.markdown('<div class="card"><div class="card-title">🏷️ Search by Hashtag or Topic — Cast a Wide Net</div>',
+                unsafe_allow_html=True)
+    st.markdown(
+        "<div class='banner-info'>"
+        "Search YouTube by topic or hashtag — finds relevant videos across <em>all channels</em> at once. "
+        "This is how you discover sources you didn't know existed. "
+        "Results are scored by title relevance and can be loaded directly into the analysis pipeline."
+        "</div>", unsafe_allow_html=True)
+
+    # Predefined hashtag buttons
+    st.markdown("**Adaptive Sailing:**")
+    hashtag_cols_1 = st.columns(5)
+    adaptive_tags = ["#sailability","#adaptivesailing","#parasailing","#disabledsailing","#inclusivesailing"]
+    for i, tag in enumerate(adaptive_tags):
+        with hashtag_cols_1[i]:
+            if st.button(tag, key=f"ht_{tag}"):
+                st.session_state.hashtag_query = tag
+                st.session_state.do_hashtag_search = True
+
+    st.markdown("**Seamanship & Command Presence:**")
+    hashtag_cols_2 = st.columns(5)
+    baseline_tags = ["#seamanship","#commandpresence","#offshoresailing","#bluewatersailing","#sailinglife"]
+    for i, tag in enumerate(baseline_tags):
+        with hashtag_cols_2[i]:
+            if st.button(tag, key=f"ht_{tag}"):
+                st.session_state.hashtag_query = tag
+                st.session_state.do_hashtag_search = True
+
+    # Custom hashtag / search term
+    hq_col, hb_col = st.columns([4,1])
+    with hq_col:
+        hashtag_input = st.text_input(
+            "Custom search",
+            value=st.session_state.get("hashtag_query",""),
+            placeholder="#sailability  or  adaptive sailing  or  wheelchair catamaran",
+            label_visibility="collapsed",
+            key="hashtag_input_field",
+        )
+    with hb_col:
+        if st.button("🔍 Search YouTube", use_container_width=True, key="do_hashtag"):
+            if hashtag_input.strip():
+                st.session_state.hashtag_query = hashtag_input.strip()
+                st.session_state.do_hashtag_search = True
+
+    # Execute hashtag search
+    if st.session_state.get("do_hashtag_search") and st.session_state.get("hashtag_query"):
+        query = st.session_state.hashtag_query
+        st.session_state.do_hashtag_search = False
+        with st.spinner(f"Searching YouTube for '{query}'..."):
+            ht_results = search_youtube_topic(query, limit=30)
+        if ht_results:
+            # Score by title
+            for v in ht_results:
+                v["title_score"] = quick_score_title(v["title"])
+            ht_results.sort(key=lambda v: -v["title_score"])
+            st.session_state.hashtag_results = ht_results
+            st.success(f"Found {len(ht_results)} videos for '{query}' — sorted by relevance to Command Presence research.")
+        else:
+            st.warning("No results. This may be a temporary YouTube access issue — try a slightly different search term.")
+            st.session_state.hashtag_results = []
+
+    # Display hashtag results
+    if st.session_state.get("hashtag_results"):
+        st.markdown(f"**Results for: `{st.session_state.get('hashtag_query','')}`**")
+        for v in st.session_state.hashtag_results[:20]:
+            score = v.get("title_score", 0)
+            score_color = "#5dcaa5" if score >= 10 else "#c9a84c" if score >= 5 else "#8fbcd4"
+            hrc, htitle, hbtn = st.columns([0.5, 5, 1])
+            with hrc:
+                st.markdown(
+                    f"<div style='font-size:.8rem;color:{score_color};font-weight:bold;padding-top:.5rem'>{score}pt</div>",
+                    unsafe_allow_html=True)
+            with htitle:
+                st.markdown(
+                    f"<div style='font-size:.83rem;color:#d6eaf8;padding:.3rem 0'>"
+                    f"<strong>{v['title'][:70]}</strong><br>"
+                    f"<span style='color:#8fbcd4;font-size:.73rem'>📺 {v.get('channel','')[:40]} | ⏱ {v.get('duration','')} | 👁 {v.get('views','')}</span>"
+                    f"</div>", unsafe_allow_html=True)
+            with hbtn:
+                safe_id = re.sub(r"[^\w]","_",v["video_id"])
+                if st.button("Load →", key=f"ht_load_{safe_id}"):
+                    # Extract channel from video — load the channel
+                    st.session_state.channel_url    = v["url"]
+                    st.session_state.active_ch_name = v.get("channel", v["title"][:30])
+                    st.session_state.just_loaded    = v.get("channel", v["title"][:30])
+                    st.session_state.videos          = [v]  # seed with this video
+                    st.session_state.transcripts     = {}
+                    st.session_state.loaded          = False
+                    st.rerun()
+
+        # Export hashtag results
+        csv_lines = ["Title,Channel,Duration,Views,URL,Score"]
+        for v in st.session_state.hashtag_results:
+            t = v["title"].replace('"',"'")
+            ch = v.get("channel","").replace('"',"'")
+            dur = v.get("duration","")
+            views = v.get("views","")
+            url = v["url"]
+            sc = v.get("title_score",0)
+            csv_lines.append(f'"{t}","{ch}","{dur}","{views}","{url}",{sc}')
+        csv_ht = "\n".join(csv_lines)
+        q = st.session_state.get("hashtag_query","query").replace(" ","_")
+        st.download_button("⬇️ Export search results as CSV", data=csv_ht,
+                           file_name=f"MAIC_search_{q}.csv",
+                           mime="text/csv")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
     st.markdown('<div class="card"><div class="card-title">📚 Curated Research Channels — by Population Group</div>',
                 unsafe_allow_html=True)
     st.markdown(
@@ -724,7 +889,7 @@ with t2:
                         wc=sum(len(s["text"].split()) for s in segs)
                         lines[-1]=f"✅ {v['title'][:50]} ({wc:,} words)"
                     except (TranscriptsDisabled,NoTranscriptFound):
-                        lines[-1]=f"❌ No captions: {v['title'][:50]}"
+                        lines[-1]=f"❌ No captions available: {v['title'][:50]} — try a different video from this channel"
                     except Exception as ex:
                         lines[-1]=f"⚠️ {v['title'][:45]}: {str(ex)[:40]}"
                     prog.progress((i+1)/len(sel))
@@ -733,7 +898,14 @@ with t2:
                     time.sleep(0.3)
                 st.session_state.loaded=True
                 n=len(st.session_state.transcripts)
-                st.success(f"✅ {n} transcript{'s' if n!=1 else ''} stored. Go to Search & Discover →")
+                if n==0:
+                    st.warning(
+                        "⚠️ **0 transcripts stored.** These videos do not have captions enabled by the channel. "
+                        "**What to do:** Go back and try different videos — filter by title to find sailing "
+                        "(not boat-building) episodes, or try a different channel from the Find Channels tab. "
+                        "Not all YouTube videos have captions available.")
+                else:
+                    st.success(f"✅ {n} transcript{'s' if n!=1 else ''} stored. Go to Search & Discover →")
             st.markdown("</div>",unsafe_allow_html=True)
 
 # ════════════════════════════════════════════════════════════════════════════════
