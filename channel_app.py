@@ -39,7 +39,7 @@ except ImportError:
     SEARCH_AVAILABLE = False
 
 try:
-    import google.generativeai as genai
+    import google.genai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
@@ -135,6 +135,7 @@ _defaults = {
     "top_videos":       [],        # scored & ranked video dicts
     "gemini_results":   {},        # vid_id -> {analysis, title, score, url}
     "synthesis":        "",        # combined synthesis text
+    "active_channel_name": "",  # name of last loaded channel
     "prompts":          {},        # MAIC 4-lens prompts
     "gemini_api_key":   "",
     "loaded":           False,
@@ -545,14 +546,10 @@ Watch the full video and produce all six sections.
 def analyze_with_gemini_api(video_url: str, title: str, api_key: str,
                              researcher_notes: str = "") -> str:
     """
-    Call Gemini API to analyze a YouTube video.
-    Returns the analysis text or raises an exception.
+    Call Gemini API to analyze a YouTube video using google.genai SDK.
     """
     if not GEMINI_AVAILABLE:
-        raise ImportError("google-generativeai package not installed")
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-pro")
+        raise ImportError("google-genai package not installed")
 
     prompt = GEMINI_VIDEO_PROMPT_TEMPLATE.format(
         video_url=video_url,
@@ -560,34 +557,17 @@ def analyze_with_gemini_api(video_url: str, title: str, api_key: str,
         researcher_notes=researcher_notes.strip() or "No additional context provided.",
     )
 
-    # Try method 1: Pass YouTube URL as file data part
-    try:
-        response = model.generate_content(
-            [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"file_data": {"file_uri": video_url, "mime_type": "video/mp4"}},
-                        {"text": prompt},
-                    ],
-                }
-            ],
-            generation_config={"max_output_tokens": 8192, "temperature": 0.3},
-        )
-        return response.text
-    except Exception:
-        pass
+    client = genai.Client(api_key=api_key)
+    full_prompt = f"Please watch this YouTube video: {video_url}\n\n{prompt}"
 
-    # Try method 2: Inline URL in prompt text (Gemini can follow YouTube links)
     try:
-        full_prompt = f"Please watch this YouTube video: {video_url}\n\n{prompt}"
-        response = model.generate_content(
-            full_prompt,
-            generation_config={"max_output_tokens": 8192, "temperature": 0.3},
+        response = client.models.generate_content(
+            model="gemini-1.5-pro",
+            contents=full_prompt,
         )
         return response.text
     except Exception as e:
-        raise Exception(f"Gemini API error: {str(e)[:200]}")
+        raise Exception(f"Gemini API error: {str(e)[:300]}")
 
 
 def auto_discover_terms(transcripts: dict, top_n: int = 60):
@@ -864,14 +844,13 @@ with tab1:
                 safe_key = re.sub(r"[^\w]", "_", ch["name"])
                 if st.button("Load →", key=f"curated_{safe_key}"):
                     st.session_state.channel_url = ch["url"]
-                    # Clear old data so new channel loads fresh
                     st.session_state.videos = []
                     st.session_state.transcripts = {}
                     st.session_state.top_videos = []
                     st.session_state.gemini_results = {}
                     st.session_state.synthesis = ""
                     st.session_state.loaded = False
-                    st.success(f"✅ '{ch['name']}' URL loaded — switching to Load Channel tab.")
+                    st.session_state.active_channel_name = ch["name"]
                     st.rerun()
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
@@ -881,6 +860,16 @@ with tab1:
 # TAB 2 — LOAD CHANNEL
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
+    # Show confirmation banner if URL was just loaded from Tab 1
+    if st.session_state.channel_url and st.session_state.get("active_channel_name"):
+        st.markdown(
+            f"<div style='background:rgba(29,158,117,.15);border:1px solid #5dcaa5;border-radius:8px;"
+            f"padding:.6rem 1rem;margin-bottom:.8rem;font-size:.85rem;color:#5dcaa5;'>"
+            f"✅ <strong>{st.session_state.active_channel_name}</strong> loaded — URL is pre-filled below. "
+            f"Click <strong>Load Channel Videos</strong> when ready.</div>",
+            unsafe_allow_html=True,
+        )
+
     st.markdown('<div class="card"><div class="card-title">📡 Load Channel & Fetch Transcripts</div>', unsafe_allow_html=True)
 
     col_url, col_limit = st.columns([3, 1])
